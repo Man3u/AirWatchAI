@@ -1,5 +1,5 @@
-streamlit==1.63.0
-pandas==2.3.3
-numpy==2.2.6
-pydeck==0.9.3
-plotly==7.0.0
+streamlit>=1.30,<2
+pandas>=2.0,<3
+numpy>=1.26,<3
+pydeck>=0.8,<1
+plotly>=5.20,<8
