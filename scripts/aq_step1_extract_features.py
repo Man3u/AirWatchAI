@@ -10,11 +10,13 @@ something the downstream model learns to handle, not something this
 script quietly special-cases.
 
 Data quality, handled uniformly (not dropped):
-  - Each product has an official per-pixel qa_value (0-1) reflecting cloud
-    contamination, sun glint, and retrieval confidence. ESA's documented
-    guidance is qa_value > 0.75 for NO2 and > 0.5 for CO/Aerosol Index --
-    these thresholds are a property of the PRODUCT (same physical basis
-    everywhere on Earth), not something tuned per city.
+  - Real band names were confirmed with aq_step0_inspect_bands.py before
+    writing this, not assumed. NO2 exposes a "cloud_fraction" band (filtered
+    at <= 0.3, standard practice for this product); CO and Aerosol Index
+    expose no additional per-pixel quality band in this GEE collection --
+    the L3 gridding has already discarded low-quality retrievals before
+    publishing. That's a difference between PRODUCTS, not between cities --
+    every city gets identical treatment within each product's own rule.
   - Every row gets both a value AND a valid_frac (fraction of the city's
     AOI with a usable retrieval that week). Low-confidence weeks are NOT
     dropped here -- they're written to the CSV with their true valid_frac
@@ -68,17 +70,39 @@ AOI_HALF_WIDTH_DEG = 0.5  # every city: (lat +/- 0.5, lon +/- 0.5), no exception
 START_DATE = "2019-01-01"
 END_DATE = "2026-08-31"  # most recent fully-complete week as of extraction time
 
-# Per-PRODUCT quality thresholds (ESA-documented), applied identically to
-# every city -- not a per-city knob.
-QA_THRESHOLDS = {
-    "no2": 0.75,
-    "co": 0.5,
-    "aer_ai": 0.5,
+# Real band names, confirmed by running aq_step0_inspect_bands.py against
+# the live collections (NOT guessed -- a first guess assuming a uniform
+# "qa_value" band across all three S5P products was wrong; that band only
+# exists for NO2, and even there it's actually called differently than
+# expected). Ground truth:
+#   NO2:    has a "cloud_fraction" band -> filter on that (standard practice
+#           for this specific GEE-hosted product, which does not expose the
+#           swath-level qa_value used in some other S5P access methods).
+#   CO:     no cloud/quality band exposed at all in this L3 collection --
+#           the L3 gridding already discards low-quality retrievals before
+#           publishing, so there is nothing further to mask on.
+#   AER_AI: same as CO -- no quality band exposed, use the value as-is.
+# This differs by PRODUCT (a data reality), not by CITY -- every city still
+# gets identical treatment within each product's rule.
+PRODUCTS = {
+    "no2": {
+        "collection": "COPERNICUS/S5P/OFFL/L3_NO2",
+        "value_band": "tropospheric_NO2_column_number_density",
+        "qa_band": "cloud_fraction",
+        "qa_keep_if_lte": 0.3,  # keep pixels with cloud_fraction <= 0.3
+    },
+    "co": {
+        "collection": "COPERNICUS/S5P/OFFL/L3_CO",
+        "value_band": "CO_column_number_density",
+        "qa_band": None,
+    },
+    "aer_ai": {
+        "collection": "COPERNICUS/S5P/OFFL/L3_AER_AI",
+        "value_band": "absorbing_aerosol_index",
+        "qa_band": None,
+    },
 }
 
-NO2_COLLECTION = "COPERNICUS/S5P/OFFL/L3_NO2"
-CO_COLLECTION = "COPERNICUS/S5P/OFFL/L3_CO"
-AER_AI_COLLECTION = "COPERNICUS/S5P/OFFL/L3_AER_AI"
 CHIRPS_COLLECTION = "UCSB-CHG/CHIRPS/DAILY"
 
 
@@ -89,18 +113,24 @@ def city_aoi(lat, lon):
     ])
 
 
-def s5p_weekly_value(collection_id, value_band, qa_threshold, aoi, start, end):
-    """Mean of `value_band` over pixels passing qa_value > qa_threshold,
-    plus the fraction of the AOI that passed -- combined reducer so
-    numerator and denominator share one pixel grid (same
-    denominator-bug-avoidance pattern used throughout this portfolio)."""
-    coll = ee.ImageCollection(collection_id).filterBounds(aoi).filterDate(start, end)
+def s5p_weekly_value(product_key, aoi, start, end):
+    """Mean of the product's value band over its AOI for one week, plus the
+    fraction of the AOI with a usable (unmasked) retrieval -- combined
+    reducer so numerator and denominator share one pixel grid (same
+    denominator-bug-avoidance pattern used throughout this portfolio).
+    Quality masking is applied only where the product actually has a
+    quality band (see PRODUCTS above); otherwise valid_frac reflects the
+    data provider's own native masking of missing/invalid retrievals."""
+    spec = PRODUCTS[product_key]
+    coll = ee.ImageCollection(spec["collection"]).filterBounds(aoi).filterDate(start, end)
 
-    def mask_by_qa(img):
-        qa = img.select("qa_value")
-        return img.updateMask(qa.gt(qa_threshold))
+    if spec["qa_band"] is not None:
+        def mask_by_qa(img):
+            qa = img.select(spec["qa_band"])
+            return img.updateMask(qa.lte(spec["qa_keep_if_lte"]))
+        coll = coll.map(mask_by_qa)
 
-    masked = coll.map(mask_by_qa).select(value_band)
+    masked = coll.select(spec["value_band"])
     composite = masked.mean().clip(aoi).rename("VALUE")
     total_band = ee.Image.constant(1).rename("TOTAL")
     combined = composite.addBands(total_band)
@@ -131,18 +161,9 @@ def period_feature(period_start_str, aoi):
     period_start = ee.Date(period_start_str)
     period_end = period_start.advance(7, "day")
 
-    no2_mean, no2_valid_frac = s5p_weekly_value(
-        NO2_COLLECTION, "tropospheric_NO2_column_number_density",
-        QA_THRESHOLDS["no2"], aoi, period_start, period_end,
-    )
-    co_mean, co_valid_frac = s5p_weekly_value(
-        CO_COLLECTION, "CO_column_number_density",
-        QA_THRESHOLDS["co"], aoi, period_start, period_end,
-    )
-    aer_mean, aer_valid_frac = s5p_weekly_value(
-        AER_AI_COLLECTION, "absorbing_aerosol_index",
-        QA_THRESHOLDS["aer_ai"], aoi, period_start, period_end,
-    )
+    no2_mean, no2_valid_frac = s5p_weekly_value("no2", aoi, period_start, period_end)
+    co_mean, co_valid_frac = s5p_weekly_value("co", aoi, period_start, period_end)
+    aer_mean, aer_valid_frac = s5p_weekly_value("aer_ai", aoi, period_start, period_end)
     precip = chirps_weekly_sum(aoi, period_start, period_end)
 
     return ee.Feature(None, {
