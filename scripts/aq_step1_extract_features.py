@@ -1,7 +1,7 @@
 """
 AirWatchAI -- Step 1: multi-city air quality feature extraction.
 
-Pulls Sentinel-5P (NO2, CO, Aerosol Index) + CHIRPS rainfall, weekly,
+Pulls Sentinel-5P (NO2, CO, Aerosol Index) + ERA5-Land rainfall, weekly,
 2019-01-01 through the most recent complete week, for every city in
 CITIES below -- with EXACTLY the same code path for every city. This is
 a deliberate discipline (see project README): no per-city thresholds, no
@@ -103,7 +103,18 @@ PRODUCTS = {
     },
 }
 
-CHIRPS_COLLECTION = "UCSB-CHG/CHIRPS/DAILY"
+# Rainfall: ERA5-Land, NOT CHIRPS. First attempt used CHIRPS/DAILY, which
+# produced a real bug: CHIRPS only covers 50S-50N latitude, and London sits
+# at 51.5N -- just outside it, so every single week for London came back
+# null. That's a genuine dataset limitation, and the fix (per the project's
+# own no-per-city-exceptions rule) isn't to swap out London -- it's to use
+# a rainfall source with true global land coverage so this can't recur for
+# ANY city. Confirmed directly against Google's Earth Engine Data Catalog
+# page (not guessed): "ECMWF/ERA5_LAND/DAILY_AGGR", band
+# "total_precipitation_sum", units meters (convert to mm via *1000),
+# data available 1950-01-02 through 2026-09-05 -- covers our full range.
+ERA5_LAND_COLLECTION = "ECMWF/ERA5_LAND/DAILY_AGGR"
+PRECIP_BAND = "total_precipitation_sum"
 
 
 def city_aoi(lat, lon):
@@ -145,14 +156,23 @@ def s5p_weekly_value(product_key, aoi, start, end):
     return stats.get("VALUE_mean"), valid_frac
 
 
-def chirps_weekly_sum(aoi, start, end):
-    coll = ee.ImageCollection(CHIRPS_COLLECTION).filterBounds(aoi).filterDate(start, end)
-    total_precip = coll.sum().clip(aoi).rename("PRECIP")
+def era5_weekly_precip_mm(aoi, start, end):
+    """total_precipitation_sum is a daily accumulated depth in meters;
+    summing 7 daily images gives the weekly total, then *1000 converts
+    meters -> millimeters (the unit every downstream script assumes)."""
+    coll = ee.ImageCollection(ERA5_LAND_COLLECTION).filterBounds(aoi).filterDate(start, end)
+    # ERA5-Land's accumulated ("_sum") bands can occasionally emit small
+    # negative values -- a documented artifact of the reanalysis model, not
+    # a real physical quantity -- so each daily image is floored at 0 before
+    # summing across the week. Applied identically to every city/week.
+    daily_precip_m = coll.select(PRECIP_BAND).map(lambda img: img.max(0))
+    total_precip_m = daily_precip_m.sum().clip(aoi).rename("PRECIP")
+    total_precip_mm = total_precip_m.multiply(1000)
     # Single (non-combined) reducer -> output key is just the band name, no
     # "_mean" suffix (that suffix only appears when reducers are .combine()'d,
     # as in s5p_weekly_value above).
-    stats = total_precip.reduceRegion(
-        reducer=ee.Reducer.mean(), geometry=aoi, scale=5000, maxPixels=1e9, bestEffort=True,
+    stats = total_precip_mm.reduceRegion(
+        reducer=ee.Reducer.mean(), geometry=aoi, scale=11132, maxPixels=1e9, bestEffort=True,
     )
     return stats.get("PRECIP")
 
@@ -164,7 +184,7 @@ def period_feature(period_start_str, aoi):
     no2_mean, no2_valid_frac = s5p_weekly_value("no2", aoi, period_start, period_end)
     co_mean, co_valid_frac = s5p_weekly_value("co", aoi, period_start, period_end)
     aer_mean, aer_valid_frac = s5p_weekly_value("aer_ai", aoi, period_start, period_end)
-    precip = chirps_weekly_sum(aoi, period_start, period_end)
+    precip = era5_weekly_precip_mm(aoi, period_start, period_end)
 
     return ee.Feature(None, {
         "period_start": period_start.format("YYYY-MM-dd"),
@@ -190,7 +210,7 @@ def weekly_starts(start_date, end_date):
 
 
 BATCH_SIZE = 3  # kept small deliberately -- each period now does 4 separate
-# product pulls (NO2, CO, AER_AI, CHIRPS) instead of 1, so the same
+# product pulls (NO2, CO, AER_AI, ERA5-Land precip) instead of 1, so the same
 # "too many concurrent aggregations" risk documented in the earlier NZ/India
 # project applies here at roughly 4x the load per period.
 MAX_RETRIES = 4
