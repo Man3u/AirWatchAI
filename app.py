@@ -242,7 +242,8 @@ with col_map:
     view_state = pdk.ViewState(latitude=15, longitude=20, zoom=1.1, pitch=0)
     st.pydeck_chart(pdk.Deck(
         layers=[layer], initial_view_state=view_state,
-        map_style="mapbox://styles/mapbox/light-v10",
+        map_provider="carto",
+        map_style="light",
         tooltip={"text": "{city}\nRole: {role}\nHeld out on: {held_out_split}\nSkill vs. persistence: {skill_pct}%"},
     ))
 with col_legend:
