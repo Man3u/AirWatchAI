@@ -1,0 +1,21 @@
+{
+  "covid_no2_drop_pct_by_city": {
+    "Tehran": -62.4,
+    "Los Angeles": -57.6,
+    "Lagos": -55.0,
+    "Delhi": -50.1,
+    "Karachi": -48.3,
+    "Mexico City": -47.7,
+    "Bangkok": -24.7,
+    "Johannesburg": -17.2,
+    "London": -12.7,
+    "Cairo": -8.3,
+    "Jakarta": -3.2,
+    "Beijing": 3.2
+  },
+  "delhi_autumn_2025_val_forecast": {
+    "model_mse": 0.04812807566446546,
+    "persistence_mse": 0.08814167370819549,
+    "skill_pct": 45.39691199443327
+  }
+}
