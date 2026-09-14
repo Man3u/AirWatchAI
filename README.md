@@ -2,6 +2,8 @@
 
 A deep-learning air quality forecasting system for the public and policymakers — built from satellite data, deployed as a live interactive app, not a static report.
 
+**Live app: https://airwatchai-5kdx4gvtwrbh4enmzq7bbg.streamlit.app**
+
 ## Why this project is different from the rest of this portfolio
 
 Every earlier project (crop stress, reservoir stress, flood risk, glacier retreat) used hand-tuned rules and per-region thresholds — a VV backscatter cutoff here, a rainfall-gate there, a region excluded there because a rule didn't generalize to it. Those were honest engineering calls at the time, but they don't scale, and they're not what "the model learns patterns from data" is supposed to mean.
@@ -49,6 +51,8 @@ Sentinel-5P TROPOMI (NO2 tropospheric column, CO total column, UV Aerosol Index)
 The model was trained with PyTorch, but the app runs inference through a hand-written NumPy re-implementation of the exact same LSTM forward pass (`scripts/aq_step4_export_weights_numpy.py`), numerically verified against the live torch model to a maximum absolute difference of 2.4e-07. This keeps the deployed app's dependency list to five small, fast-installing packages instead of a multi-hundred-MB torch wheel — meaningfully faster cold starts on free-tier hosting, with no accuracy cost.
 
 ## Run locally
+
+The live version above is the recommended way to try it — this is only needed to run it yourself.
 
 ```
 pip install -r requirements.txt
