@@ -73,12 +73,36 @@ def normalize(df, stats):
     return df
 
 
+NO2_COL_IDX = FEATURE_COLS.index("no2_log")
+CO_COL_IDX = FEATURE_COLS.index("co_log")
+
+
 def build_windows(df):
     """For every city, slide a (SEQ_LEN + HORIZON)-week window across its
     chronologically-sorted rows. A window belongs to whichever split its
     HORIZON target weeks fall in -- windows whose targets straddle a
-    train/val boundary are dropped (rare, and ambiguous by construction)."""
-    X, Y, splits, cities, target_dates = [], [], [], [], []
+    train/val boundary are dropped (rare, and ambiguous by construction).
+
+    WINDOW-RELATIVE CENTERING (RevIN-style): the no2_log and co_log columns
+    are re-centered on each window's OWN 12-week history mean before the
+    model ever sees them, and the target is centered by that same anchor.
+    Diagnosis that led here: with globally-normalized (train-mean/std)
+    absolute levels as input, the model learned "the world's NO2 sits
+    around here" rather than "this city's trajectory is shaped like this."
+    On the two unseen test cities whose overall pollution level fell
+    outside the training cities' range (Tehran, the most polluted city in
+    the whole dataset; Karachi, among the cleanest), predictions were
+    pulled toward the training-set mean by a large, systematic bias
+    (+0.65 / -0.60 in normalized units) -- classic regression-to-the-mean
+    from a model anchored to absolute level. Window-relative centering
+    removes the absolute-level signal from the input entirely, so the
+    model can only learn shape/trend/seasonality -- which is exactly what
+    should transfer to a city it has never seen. This is applied
+    identically to every window, every city, every split -- and it stays
+    deployable: a brand-new city only needs its OWN last 12 weeks to
+    compute its anchor, no training exposure required.
+    """
+    X, Y, splits, cities, target_dates, anchors = [], [], [], [], [], []
     for city, g in df.groupby("city"):
         g = g.sort_values("period_start").reset_index(drop=True)
         feats = g[FEATURE_COLS].values
@@ -90,17 +114,26 @@ def build_windows(df):
             tgt_splits = g["split"].iloc[tgt_slice].unique()
             if len(tgt_splits) != 1:
                 continue  # straddles a split boundary -- skip
-            X.append(feats[hist_slice])
-            Y.append(target[tgt_slice])
+
+            window = feats[hist_slice].copy()
+            no2_anchor = window[:, NO2_COL_IDX].mean()
+            co_anchor = window[:, CO_COL_IDX].mean()
+            window[:, NO2_COL_IDX] -= no2_anchor
+            window[:, CO_COL_IDX] -= co_anchor
+
+            X.append(window)
+            Y.append(target[tgt_slice] - no2_anchor)  # target col is no2_log
             splits.append(tgt_splits[0])
             cities.append(city)
             target_dates.append(g["period_start"].iloc[tgt_slice].tolist())
+            anchors.append(no2_anchor)
     return (
         np.array(X, dtype=np.float32),
         np.array(Y, dtype=np.float32),
         np.array(splits),
         np.array(cities),
         target_dates,
+        np.array(anchors, dtype=np.float32),
     )
 
 
@@ -129,7 +162,7 @@ def persistence_baseline(X, Y):
 def train():
     df, stats = load_data()
     df_norm = normalize(df, stats)
-    X, Y, splits, cities, target_dates = build_windows(df_norm)
+    X, Y, splits, cities, target_dates, anchors = build_windows(df_norm)
 
     train_mask = splits == "train"
     val_mask = splits == "val"
@@ -217,6 +250,23 @@ def train():
     print(f"  Test  -- model MSE: {test_loss:.4f}  persistence MSE: {baseline_test_mse:.4f}  skill: {test_skill:+.1f}%")
     print(f"  (Test = {sorted(set(cities[test_mask]))}, cities the model NEVER saw during training)")
 
+    # Per-test-city breakdown -- is the test-set MSE driven uniformly by all
+    # 4 unseen cities, or is one city dragging the average down? Needed
+    # before deciding what (if anything) to fix -- an average can hide a
+    # single bad city behind three fine ones.
+    per_city = {}
+    with torch.no_grad():
+        for city in sorted(set(cities[test_mask])):
+            c_mask = test_mask & (cities == city)
+            Xc, Yc = to_tensor(X[c_mask]), to_tensor(Y[c_mask])
+            pred_c = model(Xc)
+            mse_c = loss_fn(pred_c, Yc).item()
+            base_c = persistence_baseline(X[c_mask], Y[c_mask])
+            skill_c = (base_c - mse_c) / base_c * 100
+            per_city[city] = {"model_mse": mse_c, "persistence_mse": base_c, "skill_pct": skill_c, "n_windows": int(c_mask.sum())}
+            print(f"    {city:15s} n={c_mask.sum():4d}  model_mse={mse_c:.4f}  persistence_mse={base_c:.4f}  skill={skill_c:+.1f}%")
+    metrics_per_city = per_city
+
     # -- save everything needed by the app later --
     torch.save(model.state_dict(), os.path.join(MODELS_DIR, "no2_forecaster.pt"))
     metrics = {
@@ -227,6 +277,7 @@ def train():
         "test_cities": sorted(set(cities[test_mask].tolist())),
         "train_cities": sorted(set(cities[train_mask].tolist())),
         "epochs_trained": len(history["train_loss"]),
+        "per_test_city": metrics_per_city,
     }
     with open(os.path.join(MODELS_DIR, "training_metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
@@ -252,21 +303,38 @@ def train():
 def plot_example(model, df_norm, stats, city, tag):
     g = df_norm[df_norm["city"] == city].sort_values("period_start").reset_index(drop=True)
     feats = g[FEATURE_COLS].values.astype(np.float32)
-    dates = g["period_start"].values
+    # Keep dates as a pandas Series of Timestamps, NOT numpy .values.tolist().
+    # On this numpy/pandas combo, calling .tolist() on a datetime64[ns] numpy
+    # array can hand back raw integer nanosecond counts instead of
+    # datetime.datetime objects, which matplotlib's date axis then tries to
+    # interpret as ordinal days -- producing numbers so large the internal
+    # timedelta64 conversion overflows. Pandas' own .tolist() on a Series
+    # returns proper Timestamp objects and sidesteps this entirely.
+    dates = g["period_start"]
     m, s = stats["no2_log"]["mean"], stats["no2_log"]["std"]
 
     preds, pred_dates, actual_denorm = [], [], []
     model.eval()
     with torch.no_grad():
         for start in range(0, len(g) - SEQ_LEN - HORIZON + 1, HORIZON):
-            x = torch.tensor(feats[start:start + SEQ_LEN].tolist(), dtype=torch.float32).unsqueeze(0)
+            window = feats[start:start + SEQ_LEN].copy()
+            # Same window-relative centering used in build_windows/training --
+            # the model was trained on windows centered on their own 12-week
+            # mean, so inference has to match that exactly or predictions
+            # will be silently wrong.
+            no2_anchor = window[:, NO2_COL_IDX].mean()
+            co_anchor = window[:, CO_COL_IDX].mean()
+            window[:, NO2_COL_IDX] -= no2_anchor
+            window[:, CO_COL_IDX] -= co_anchor
+            x = torch.tensor(window.tolist(), dtype=torch.float32).unsqueeze(0)
             # .tolist() instead of .numpy() -- same broken torch<->numpy
             # bridge, this time going tensor -> array; a plain Python list
             # sidesteps it in both directions.
-            pred_norm = model(x).squeeze(0).tolist()
+            pred_norm_centered = model(x).squeeze(0).tolist()
+            pred_norm = [v + no2_anchor for v in pred_norm_centered]  # de-center
             pred_denorm = [v * s + m for v in pred_norm]
             preds.extend(pred_denorm)
-            pred_dates.extend(dates[start + SEQ_LEN:start + SEQ_LEN + HORIZON].tolist())
+            pred_dates.extend(dates.iloc[start + SEQ_LEN:start + SEQ_LEN + HORIZON].tolist())
 
     actual_denorm = (g["no2_log"].values * s + m)
 

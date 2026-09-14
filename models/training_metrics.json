@@ -1,0 +1,61 @@
+{
+  "seq_len": 12,
+  "horizon": 4,
+  "feature_cols": [
+    "no2_log",
+    "co_log",
+    "aer_ai_mean",
+    "precip_mm",
+    "doy_sin",
+    "doy_cos"
+  ],
+  "val_mse": 0.417103111743927,
+  "test_mse": 0.43260443210601807,
+  "baseline_val_mse": 0.8154953122138977,
+  "baseline_test_mse": 0.4692135155200958,
+  "val_skill_pct": 48.85278854496661,
+  "test_skill_pct": 7.802222698870624,
+  "test_cities": [
+    "Bangkok",
+    "Johannesburg",
+    "Karachi",
+    "Tehran"
+  ],
+  "train_cities": [
+    "Beijing",
+    "Cairo",
+    "Delhi",
+    "Jakarta",
+    "Lagos",
+    "London",
+    "Los Angeles",
+    "Mexico City"
+  ],
+  "epochs_trained": 38,
+  "per_test_city": {
+    "Bangkok": {
+      "model_mse": 0.16151708364486694,
+      "persistence_mse": 0.2439371943473816,
+      "skill_pct": 33.78743078644388,
+      "n_windows": 385
+    },
+    "Johannesburg": {
+      "model_mse": 1.0436042547225952,
+      "persistence_mse": 0.9404940605163574,
+      "skill_pct": -10.963407270177488,
+      "n_windows": 385
+    },
+    "Karachi": {
+      "model_mse": 0.2068215161561966,
+      "persistence_mse": 0.31644219160079956,
+      "skill_pct": 34.6416117553921,
+      "n_windows": 385
+    },
+    "Tehran": {
+      "model_mse": 0.31847503781318665,
+      "persistence_mse": 0.3759806156158447,
+      "skill_pct": 15.294825162320059,
+      "n_windows": 385
+    }
+  }
+}
