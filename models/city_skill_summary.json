@@ -1,0 +1,122 @@
+{
+  "Bangkok": {
+    "role": "test",
+    "held_out_split": "test (never trained on)",
+    "skill_pct": 33.8,
+    "model_mse": 0.1615,
+    "persistence_mse": 0.2439,
+    "n_eval_windows": 385,
+    "relative_pollution_rank_1to12": 4,
+    "mean_no2_column_density": 5.527e-05
+  },
+  "Beijing": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 43.0,
+    "model_mse": 0.1979,
+    "persistence_mse": 0.347,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 11,
+    "mean_no2_column_density": 0.00015203
+  },
+  "Cairo": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 36.6,
+    "model_mse": 0.1,
+    "persistence_mse": 0.1575,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 10,
+    "mean_no2_column_density": 0.00010036
+  },
+  "Delhi": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 31.7,
+    "model_mse": 0.1403,
+    "persistence_mse": 0.2055,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 6,
+    "mean_no2_column_density": 7.473e-05
+  },
+  "Jakarta": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 30.1,
+    "model_mse": 0.115,
+    "persistence_mse": 0.1645,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 3,
+    "mean_no2_column_density": 5.015e-05
+  },
+  "Johannesburg": {
+    "role": "test",
+    "held_out_split": "test (never trained on)",
+    "skill_pct": -11.0,
+    "model_mse": 1.0436,
+    "persistence_mse": 0.9405,
+    "n_eval_windows": 385,
+    "relative_pollution_rank_1to12": 8,
+    "mean_no2_column_density": 8.658e-05
+  },
+  "Karachi": {
+    "role": "test",
+    "held_out_split": "test (never trained on)",
+    "skill_pct": 34.6,
+    "model_mse": 0.2068,
+    "persistence_mse": 0.3164,
+    "n_eval_windows": 385,
+    "relative_pollution_rank_1to12": 2,
+    "mean_no2_column_density": 3.931e-05
+  },
+  "Lagos": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 35.4,
+    "model_mse": 0.1289,
+    "persistence_mse": 0.1997,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 1,
+    "mean_no2_column_density": 3.248e-05
+  },
+  "London": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 52.5,
+    "model_mse": 2.3655,
+    "persistence_mse": 4.9809,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 5,
+    "mean_no2_column_density": 6.818e-05
+  },
+  "Los Angeles": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 42.3,
+    "model_mse": 0.1679,
+    "persistence_mse": 0.2911,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 9,
+    "mean_no2_column_density": 9.04e-05
+  },
+  "Mexico City": {
+    "role": "train",
+    "held_out_split": "val (time-holdout)",
+    "skill_pct": 31.8,
+    "model_mse": 0.1213,
+    "persistence_mse": 0.1778,
+    "n_eval_windows": 57,
+    "relative_pollution_rank_1to12": 7,
+    "mean_no2_column_density": 7.665e-05
+  },
+  "Tehran": {
+    "role": "test",
+    "held_out_split": "test (never trained on)",
+    "skill_pct": 15.3,
+    "model_mse": 0.3185,
+    "persistence_mse": 0.376,
+    "n_eval_windows": 385,
+    "relative_pollution_rank_1to12": 12,
+    "mean_no2_column_density": 0.00025442
+  }
+}
